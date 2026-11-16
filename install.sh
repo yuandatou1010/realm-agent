@@ -181,7 +181,7 @@ CHECKSUM_URL="$(asset_url SHA256SUMS)"
 release_fetch "$CHECKSUM_URL" "$WORK/SHA256SUMS"
 
 # Agent 从 Release 下载并校验。
-AGENT_ASSET="aaa-agent-linux-${AGENT_ARCH}"
+AGENT_ASSET="realm-agent-linux-${AGENT_ARCH}"
 AGENT_URL="$(asset_url "$AGENT_ASSET")"
 
 [ -n "$AGENT_URL" ] ||
