@@ -180,23 +180,28 @@ CHECKSUM_URL="$(asset_url SHA256SUMS)"
 
 release_fetch "$CHECKSUM_URL" "$WORK/SHA256SUMS"
 
+# Agent 从 Release 下载并校验。
 AGENT_ASSET="aaa-agent-linux-${AGENT_ARCH}"
+AGENT_URL="$(asset_url "$AGENT_ASSET")"
 
-# Agent、菜单、安装脚本全部取自同一 Release。
-for name in "$AGENT_ASSET" menu.sh install.sh; do
-    url="$(asset_url "$name")"
+[ -n "$AGENT_URL" ] ||
+    die "Release $AGENT_TAG 缺少 $AGENT_ASSET。"
 
-    [ -n "$url" ] ||
-        die "Release $AGENT_TAG 缺少 $name。"
+echo "下载 Agent：$AGENT_TAG"
 
-    echo "下载：$name"
-
-    release_fetch "$url" "$WORK/$name"
-    verify_asset "$name"
-done
+release_fetch "$AGENT_URL" "$WORK/$AGENT_ASSET"
+verify_asset "$AGENT_ASSET"
 
 mv "$WORK/$AGENT_ASSET" "$WORK/agent"
-mv "$WORK/menu.sh" "$WORK/aaa"
+
+# Shell 脚本独立从仓库获取，不与 Agent 版本绑定。
+REF="${AAA_REF:-main}"
+BASE="https://raw.githubusercontent.com/${REPO}/${REF}"
+
+echo "下载菜单和安装脚本……"
+
+fetch "$BASE/menu.sh" "$WORK/aaa"
+fetch "$BASE/install.sh" "$WORK/install.sh"
 
 sh -n "$WORK/aaa"
 sh -n "$WORK/install.sh"
