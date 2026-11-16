@@ -1,0 +1,125 @@
+name: Build and Publish Realm Agent
+
+on:
+  push:
+    tags:
+      - "v*"
+
+  release:
+    types:
+      - published
+
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要构建的已有版本标签，例如 v1.2.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: realm-agent-release-${{ github.event.inputs.tag || github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Determine release tag
+        id: release
+        shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          TAG="${INPUT_TAG:-${RELEASE_TAG:-$GITHUB_REF_NAME}}"
+
+          if [[ ! "$TAG" =~ ^v[0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "版本格式无效，请使用例如 v1.2.1 的标签。"
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.release.outputs.tag }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: false
+
+      - name: Check source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f agent.go
+
+      - name: Build static Linux binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+
+          for arch in amd64 arm64; do
+            echo "Building linux/$arch"
+
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
+              go build \
+              -trimpath \
+              -ldflags="-s -w" \
+              -o "dist/aaa-agent-linux-$arch" \
+              agent.go
+          done
+
+          ./dist/aaa-agent-linux-amd64 version
+
+          cd dist
+
+          sha256sum \
+            aaa-agent-linux-amd64 \
+            aaa-agent-linux-arm64 \
+            > SHA256SUMS
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --verify-tag \
+              --draft \
+              --title "$RELEASE_TAG" \
+              --generate-notes
+          fi
+
+          gh release upload "$RELEASE_TAG" \
+            dist/aaa-agent-linux-amd64 \
+            dist/aaa-agent-linux-arm64 \
+            dist/SHA256SUMS \
+            --clobber
+
+          IS_DRAFT="$(
+            gh release view "$RELEASE_TAG" \
+              --json isDraft \
+              --jq '.isDraft'
+          )"
+
+          if [ "$IS_DRAFT" = "true" ]; then
+            gh release edit "$RELEASE_TAG" --draft=false
+          fi
